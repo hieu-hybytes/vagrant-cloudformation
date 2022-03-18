@@ -1,0 +1,300 @@
+AWSTemplateFormatVersion:  "2010-09-09"
+Description: This template create a VPC with Public and Private subnet along with the EC2 instance and RDS.
+Parameters:
+  VpcCIDR:
+    Default: 10.0.0.0/16
+    Type: String
+  PublicSubnet1CIDR:
+    Default: 10.0.0.0/24
+    Type: String
+  PublicSubnet2CIDR:
+    Default: 10.0.1.0/24
+    Type: String
+  DBUsername:
+    Description: Username for Postgresql database access
+    Type: String
+    Default: "postgres"
+  DBPassword:
+    Description: Password Postgresql database access
+    Type: String
+    Default: "postgres"
+  
+  DBInstanceIdentifier:
+    Type: String
+    Default: "postgres"
+    Description: DB identifier name
+
+  DBClass:
+    Type: String
+    Default: "db.t3.micro"
+    Description: DB Instance Class
+
+  DBEngine:
+    Type: String
+    Default: "postgres"
+    Description: DB Instance Engine
+
+  PrivateSubnet1CIDR:
+    Default: 10.0.2.0/24
+    Type: String
+  PrivateSubnet2CIDR:
+    Default: 10.0.3.0/24
+    Type: String 
+  InstanceTypeParameter:
+    Type: String
+    Default: t2.micro
+    AllowedValues: [t2.nano, t2.micro, t2.small, t2.medium, t2.large, t2.xlarge, t2.2xlarge,
+      t3.nano, t3.micro, t3.small, t3.medium, t3.large, t3.xlarge, t3.2xlarge,
+      m4.large, m4.xlarge, m4.2xlarge, m4.4xlarge, m4.10xlarge,
+      m5.large, m5.xlarge, m5.2xlarge, m5.4xlarge,
+      c5.large, c5.xlarge, c5.2xlarge, c5.4xlarge, c5.9xlarge,
+      g3.8xlarge,r5.large, r5.xlarge, r5.2xlarge, r5.4xlarge, r3.12xlarge,
+      i3.xlarge, i3.2xlarge, i3.4xlarge, i3.8xlarge,
+      d2.xlarge, d2.2xlarge, d2.4xlarge, d2.8xlarge]
+    Description: Enter instance size. Default is t2.micro.
+  AMIIDParameter:
+    Type:  'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties: 
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      InstanceTenancy: default
+      Tags: 
+        - Key: Name
+          Value: Test VPC
+
+  InternetGateway:      
+    Type: AWS::EC2::InternetGateway
+    Properties: 
+      Tags: 
+        - Key: Name
+          Value: Test IGW
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway 
+  
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnet1CIDR
+      AvailabilityZone: !Select [0, !GetAZs ''] 
+      Tags:
+      - Key: Name
+        Value: Test Public Subnet 1
+
+  
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: Test Public Route Table
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Properties:
+       RouteTableId: !Ref PublicRouteTable
+       DestinationCidrBlock: 0.0.0.0/0
+       GatewayId: !Ref InternetGateway
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: Test Private Route Table
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet1CIDR
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [0, !GetAZs ''] 
+      Tags:
+      - Key: Name
+        Value: Test Private Subnet 1
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet2CIDR
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [1, !GetAZs ''] 
+      Tags:
+      - Key: Name
+        Value: Test Private Subnet 2
+
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable
+
+  ElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: VPC
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt ElasticIP.AllocationId
+      SubnetId: !Ref PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: Test NatGateway
+
+  RouteNatGateway:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: '0.0.0.0/0'
+      NatGatewayId: !Ref NatGateway
+      RouteTableId: !Ref PrivateRouteTable      
+
+  EC2Instance: 
+    Type: AWS::EC2::Instance
+    Properties: 
+      ImageId: !Ref AMIIDParameter
+      InstanceType: !Ref InstanceTypeParameter
+      KeyName: "test-keypair"
+      UserData: 
+        Fn::Base64: |
+          #!/bin/bash 
+          sudo yum update -y
+          sudo amazon-linux-extras install nginx1 -y 
+          sudo systemctl enable nginx
+          sudo systemctl start nginx
+          sudo apt-get purge postgresql* -y
+          sudo yum install postgresql -y
+      Tags:
+        - Key: Name
+          Value: Public EC2 Instance
+      # SecurityGroupIds:
+      #   - !GetAtt "InstanceSecurityGroup.GroupId"
+      NetworkInterfaces: 
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          GroupSet: 
+            - Ref: "InstanceSecurityGroup"
+          SubnetId: !Ref PublicSubnet1
+
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Inbound Traffic for http, https and ssh .All Outbound Traffic default"
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Public Security Group
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 0.0.0.0/0
+  DBSubnetGroup: 
+    Properties: 
+      DBSubnetGroupDescription: subnet group for RDS database
+      SubnetIds: 
+        - Ref: "PrivateSubnet1"
+        - Ref: "PrivateSubnet2"
+      Tags: 
+        - 
+          Key: Name
+          Value: RDS subnet
+    Type: "AWS::RDS::DBSubnetGroup"
+
+  DB:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Ref DBInstanceIdentifier
+      AllocatedStorage: "5"
+      DBInstanceClass: !Ref DBClass
+      Engine: !Ref DBEngine
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups: 
+        - !Ref InstanceSecurityGroup
+      Tags:
+        - Key: Name
+          Value: RDS DB
+
+
+  EC2InstancePrivate: 
+    Type: AWS::EC2::Instance
+    Properties: 
+      ImageId: !Ref AMIIDParameter
+      InstanceType: !Ref InstanceTypeParameter
+      KeyName: "test-keypair"
+      Tags:
+        - Key: Name
+          Value: Private EC2 Instance
+      # SecurityGroupIds:
+      #   - !GetAtt "InstanceSecurityGroup.GroupId"
+      NetworkInterfaces: 
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          GroupSet: 
+            - Ref: "InstanceSecurityGroupPrivate"
+          SubnetId: !Ref PrivateSubnet1
+
+  InstanceSecurityGroupPrivate:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Inbound Traffic for ssh. All Outbound Traffic default"
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: Private Security Group
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 0.0.0.0/0
+
+
+
+
